@@ -183,11 +183,13 @@ async function pageOverview() {
     <div class="card" id="ovFarms"><div class="card-h"><h2>Farms this year</h2><a class="more" href="#/farms">All farm data →</a></div><div id="ovFarmsBody">${YTD.done ? "" : '<div class="skeleton rows"></div>'}</div></div>
     <p class="status-line">${dataStatus()}</p>
   </div>`);
-  try { await ensureDay(y); } catch (e) { $("ovDay").innerHTML = errorBox(e); }
-  const r = computeDay(y);
-  if (r && $("ovDay")) $("ovDay").innerHTML = verdict(r.settle, `Yesterday · ${shortDate(y)}`,
+  let y2 = y;
+  try { await ensureDay(y); } catch { await loadYtd(); y2 = RANGE ? RANGE.to : y; }
+  const r = computeDay(y2);
+  if (!r && $("ovDay")) $("ovDay").innerHTML = errorBox(new Error("data for the latest days is not available yet"));
+  if (r && $("ovDay")) $("ovDay").innerHTML = verdict(r.settle, `${y2 === y ? "Yesterday" : "Latest day"} · ${shortDate(y2)}`,
     `${term("Market price", "market")} ${price(r.base)} vs ${term("our auction price", "auction")} ${price(r.auction)} PLN/MWh, on ${F1.format(r.eligible)} MWh.`,
-    `<div class="v-foot">${srcBadge(r.src)}<a class="more" href="#/day/${y}">Open the day →</a></div>`);
+    `<div class="v-foot">${srcBadge(r.src)}<a class="more" href="#/day/${y2}">Open the day →</a></div>`);
   if (YTD.done) overviewYtd(); else loadYtd();
 }
 function overviewYtd() {
@@ -497,6 +499,7 @@ function refreshData() {
   const y = yesterday();
   for (const k in WX) for (const d in WX[k]) if (d >= addDays(y, -2)) delete WX[k][d];
   for (const d in PRICES) if (d >= addDays(y, -2)) delete PRICES[d];
+  for (const k in MONTHS_LOADED) if (k >= addDays(y, -2).slice(0, 7)) delete MONTHS_LOADED[k];
   YTD.done = false; YTD.running = null; invalidate(); loadYtd(); setStatus("Reloading the latest days…"); setTimeout(() => setStatus(null), 2500);
 }
 

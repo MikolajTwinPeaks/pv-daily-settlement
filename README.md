@@ -36,7 +36,7 @@ Pages on a private repository requires a paid GitHub plan. On a public repositor
 | Day-ahead prices, 15-min (RCE PLN = SDAC price for Poland) | PSE API `api.raporty.pse.pl/api/rce-pln` |
 | Irradiance on a 30° south plane, air temperature, hourly | Open-Meteo Archive API, ERA5 reanalysis (same source as the PR calibration); ECMWF IFS historical forecast for days ERA5 has not covered yet (CC BY 4.0; free tier is for non-commercial use) |
 
-Closed months are cached in the browser (localStorage), so after the first load only the current month is fetched.
+The browser does not call these APIs for the whole year. A GitHub Action (`.github/workflows/update-data.yml`) runs every morning, fetches prices and weather and commits them to `data/YYYY-MM.json`; the app reads those files and calls the APIs live only for days not yet in them. Site coordinates are passed to the Action as the repository secret `SITES` and stored in the files only as hashes. Run it by hand: Actions → Update data → Run workflow, or locally `node tools/update-data.mjs`.
 
 ## Method
 

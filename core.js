@@ -84,7 +84,7 @@ function setStatus(msg, isErr) {
   el.hidden = false; el.textContent = msg; el.className = "status" + (isErr ? " error" : "");
 }
 
-async function fetchJson(url, tries = 3, timeoutMs = 60000) {
+async function fetchJson(url, tries = 2, timeoutMs = 25000) {
   let last;
   for (let i = 0; i < tries; i++) {
     const ctl = new AbortController();
@@ -170,45 +170,68 @@ function merge(px, wx) {
 }
 const haveDay = (d) => PRICES[d] && Object.keys(sites()).every((k) => WX[k]?.[d]?.ok);
 
+// ---- static cache (data/YYYY-MM.json, built daily by GitHub Actions) ----
+let HASH2SITE = null;
+async function siteHashes() {
+  if (HASH2SITE) return HASH2SITE;
+  HASH2SITE = {};
+  for (const k of Object.keys(sites())) {
+    const h = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(k)))).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
+    HASH2SITE[h] = k;
+  }
+  return HASH2SITE;
+}
+const MONTHS_LOADED = {};
+let CACHE_TAG = "";
+async function loadMonthFile(ym) {
+  if (MONTHS_LOADED[ym]) return MONTHS_LOADED[ym];
+  MONTHS_LOADED[ym] = (async () => {
+    try {
+      const r = await fetch(`data/${ym}.json${CACHE_TAG ? "?u=" + CACHE_TAG : ""}`);
+      if (!r.ok) return false;
+      const c = await r.json(), map = await siteHashes(), wx = {};
+      for (const h in c.wx) if (map[h]) wx[map[h]] = c.wx[h];
+      merge(c.px, wx);
+      return true;
+    } catch { return false; }
+  })();
+  return MONTHS_LOADED[ym];
+}
+
 // fast path: a single day
 async function ensureDay(d) {
+  if (haveDay(d)) return;
+  await loadMonthFile(d.slice(0, 7));
   if (haveDay(d)) return;
   const [px, wx] = await Promise.all([fetchPrices(d, d), fetchWeather(d, d)]);
   merge(px, wx);
 }
 
-// year to date, month by month, closed months cached in the browser
+// year to date: static monthly files first, live APIs only for days not in the cache yet
 const YTD = { done: false, running: null, progress: "" };
-function monthsUntil(to) {
-  const out = [];
-  for (let m = START.slice(0, 7); m <= to.slice(0, 7); ) {
-    const first = m + "-01";
-    const last = addDays(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1)).toISOString().slice(0, 10), -1);
-    out.push({ m, from: first < START ? START : first, to: last > to ? to : last, closed: last < to });
-    const n = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1)); m = n.toISOString().slice(0, 7);
-  }
-  return out;
-}
 function loadYtd(force) {
-  try { Object.keys(localStorage).filter((k) => k.startsWith("wd.cache.v1.")).forEach((k) => localStorage.removeItem(k)); } catch {}
+  try { Object.keys(localStorage).filter((k) => k.startsWith("wd.cache.")).forEach((k) => localStorage.removeItem(k)); } catch {}
   if (YTD.running && !force) return YTD.running;
   const to = yesterday();
   YTD.done = false;
   YTD.running = (async () => {
-    for (const mo of monthsUntil(to)) {
-      const key = `wd.cache.v2.${mo.m}`;
-      let c = !force && mo.closed ? store.get(key, null) : null;
-      if (!c) {
-        YTD.progress = `Loading year to date: ${monthName(mo.m)}…`;
-        onYtdProgress();
-        const [px, wx] = await Promise.all([fetchPrices(mo.from, mo.to), fetchWeather(mo.from, mo.to)]);
-        c = { px, wx };
-        if (mo.closed) store.set(key, c);
-      }
-      merge(c.px, c.wx);
+    YTD.progress = "Loading the year…"; onYtdProgress();
+    try { const ix = await (await fetch("data/index.json", { cache: "no-store" })).json(); CACHE_TAG = ix.updated || ""; } catch {}
+    const months = [];
+    for (let m = START.slice(0, 7); m <= to.slice(0, 7); m = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1)).toISOString().slice(0, 7)) months.push(m);
+    await Promise.all(months.map(loadMonthFile));
+    const missing = [];
+    for (let d = START; d <= to; d = addDays(d, 1)) if (!haveDay(d)) missing.push(d);
+    if (missing.length) {
+      YTD.progress = `Fetching ${missing.length} day${missing.length > 1 ? "s" : ""} not yet in the daily update…`; onYtdProgress();
+      try {
+        const [px, wx] = await Promise.all([fetchPrices(missing[0], missing[missing.length - 1]), fetchWeather(missing[0], missing[missing.length - 1])]);
+        merge(px, wx);
+      } catch (e) { if (missing.length > 3) throw e; } // a few latest days may be missing; show the rest
     }
+    let last = to; while (last > START && !haveDay(last)) last = addDays(last, -1);
     YTD.done = true; YTD.running = null;
-    RANGE = { from: START, to };
+    RANGE = { from: START, to: last };
     YTD.loadedAt = new Date();
     onYtdReady();
   })().catch((e) => {

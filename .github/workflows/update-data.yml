@@ -1,0 +1,30 @@
+name: Update data
+
+on:
+  schedule:
+    - cron: "30 5 * * *"   # every day, about 06:30–07:30 in Poland
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch prices and weather
+        env:
+          SITES: ${{ secrets.SITES }}
+        run: node tools/update-data.mjs
+      - name: Commit
+        run: |
+          git config user.name "data-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Update data $(date -u +%F)"
+          git push

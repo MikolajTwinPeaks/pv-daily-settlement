@@ -19,6 +19,7 @@ const T = {
   agent: "Zarządca Rozliczeń S.A. (ZRSA), the state settlement agent for renewable auctions.",
   estimated: "Average of the day's PSE day-ahead prices. On 18 checked days it was within 0.8% of the official index on average.",
   sale: "What the offtaker pays for the energy. Default: 60% of the market price.",
+  curtailed: "Energy the farms could have produced but did not: switch-offs ordered by PSE (redispatch), switch-offs at negative prices and faults, from the operator's list. Curtailed energy is neither sold nor settled.",
 };
 const term = (label, key) => `<span class="term" tabindex="0" data-tip="${esc(T[key])}">${label}</span>`;
 const srcBadge = (src) => ({
@@ -235,8 +236,15 @@ function dayBand(r, d) {
   const sub = r.settle > 0.5 ? `The market price was below our auction price, so the ${term("settlement agent", "agent")} pays the difference.`
     : r.settle < -0.5 ? `The market price was above our auction price, so we return the difference to the ${term("settlement agent", "agent")}.` : "Nothing to settle on this day.";
   return `<section class="band ${c}"><div><div class="v-title">Auction settlement · ${esc(shortDate(d))}</div><div class="v-head">${head}</div><div class="v-sub">${sub}</div>
-    <div class="band-foot">${srcBadge(r.src)}${r.wxOk ? "" : `<span class="badge warn">Weather data incomplete</span>`}${r.eEx > 0.0005 ? `<span class="badge warn">${F1.format(r.eEx)} MWh excluded, negative prices</span>` : ""}</div></div>
+    <div class="band-foot">${srcBadge(r.src)}${r.wxOk ? "" : `<span class="badge warn">Weather data incomplete</span>`}${r.eEx > 0.0005 ? `<span class="badge warn">${F1.format(r.eEx)} MWh excluded, negative prices</span>` : ""}${r.curtailed > 0.0005 ? `<span class="badge warn">${F1.format(r.curtailed)} MWh curtailed${r.curtReported ? "" : " (est.)"}</span>` : ""}</div></div>
     <div>${priceScale(r)}</div></section>`;
+}
+const CUT_LBL = { R: "PSE", N: "neg. prices", F: "fault", M: "maintenance" };
+function curtNote(x) {
+  if (x.curtailed < 0.0005) return "";
+  if (x.curtSrc === "estimated") return `−${F2.format(x.curtailed)} off (est.)`;
+  const why = Object.keys(CUT_LBL).filter((k) => x.cut[k] > 0).map((k) => CUT_LBL[k]).join(", ");
+  return `−${F2.format(x.curtailed)} off · ${why}`;
 }
 function kpiStrip(items) {
   return `<div class="strip">${items.map(([l, v, s, c, dot]) => `<div><div class="k-l">${dot ? `<i style="background:${dot}"></i>` : ""}${l}</div><div class="k-v ${c || ""}">${v}</div>${s ? `<div class="k-s">${s}</div>` : ""}</div>`).join("")}</div>`;
@@ -264,7 +272,7 @@ async function pageDay(d) {
   setPage(head + `
     ${dayBand(r, d)}
     ${kpiStrip([
-      ["Production (est.)", `${F2.format(r.E)}<span class="u">MWh</span>`, `${F2.format(r.eAuc)} MWh from auction farms`, "", css("--sun")],
+      ["Production (est.)", `${F2.format(r.E)}<span class="u">MWh</span>`, r.curtailed > 0.0005 ? `after ${F2.format(r.curtailed)} MWh ${term("curtailed", "curtailed")}${r.curtReported ? "" : " (est.)"}` : `${F2.format(r.eAuc)} MWh from auction farms`, "", css("--sun")],
       [term("Settled energy", "settled"), `${F2.format(r.eligible)}<span class="u">MWh</span>`, r.eEx > 0.0005 ? `${F2.format(r.eEx)} MWh excluded` : "nothing excluded"],
       [`${term("Sales revenue", "sale")} (est.)`, money(r.sale), `${price(r.salePrice)} PLN/MWh`],
       ["Total revenue", money(r.net), `${price(r.E ? r.net / r.E : null)} PLN/MWh incl. settlement`],
@@ -273,7 +281,7 @@ async function pageDay(d) {
       <div class="card"><div class="card-h"><h2>Farms</h2><span class="sub">Select a farm for its hourly detail</span></div>
         <div class="tbl"><table class="h2"><thead><tr><th>Farm</th><th>Output MWh</th><th>Settlement PLN</th><th>Revenue PLN</th></tr></thead><tbody>
         ${r.farms.map((x) => `<tr><td><a class="rowlink" href="#/day/${d}/farm/${x.f.id}">${esc(x.f.name)}</a><div class="sub">${x.f.auction ? "Auction" : "Merchant"}</div></td>
-          <td>${hbar(x.E, maxE)}${F2.format(x.E)}</td>
+          <td>${hbar(x.E, maxE)}${F2.format(x.E)}${curtNote(x) ? `<div class="sub">${curtNote(x)}</div>` : ""}</td>
           <td class="${x.f.auction ? cls(x.settle) : "muted"}">${x.f.auction ? dbar(x.settle, maxS) + signed(x.settle) : "n/a"}</td><td><b>${pln(x.net)}</b></td></tr>`).join("")}
         </tbody><tfoot><tr><td>Portfolio</td><td>${F2.format(r.E)}</td><td class="${cls(r.settle)}">${signed(r.settle)}</td><td>${pln(r.net)}</td></tr></tfoot></table></div></div>
       <div class="card"><div class="card-h"><h2>Hour by hour</h2><span class="sub">Portfolio output and prices</span></div>
@@ -303,7 +311,7 @@ async function pageFarmDay(d, id) {
   const x = r.farms.find((y) => y.f.id === id);
   setPage(`<div class="wrap">${crumbs([["Overview", "#/"], [shortDate(d), `#/day/${d}`], [f.name, ""]])}${farmBanner(f, shortDate(d))}
     ${kpiStrip([
-      ["Output (est.)", `${F3.format(x.E)}<span class="u">MWh</span>`, `${F2.format(x.yieldKwh)} kWh per kWp`, "", css("--sun")],
+      ["Output (est.)", `${F3.format(x.E)}<span class="u">MWh</span>`, x.curtailed > 0.0005 ? `after ${F2.format(x.curtailed)} MWh curtailed${x.curtSrc === "estimated" ? " (est.)" : ""}` : `${F2.format(x.yieldKwh)} kWh per kWp`, "", css("--sun")],
       [term("Sale price", "sale"), `${price(x.salePrice)}<span class="u">PLN/MWh</span>`, `${pln(x.sale)} PLN sales`],
       ["Settlement", f.auction ? money(x.settle) : "n/a", f.auction ? `on ${F3.format(x.eligible)} MWh settled` : "Merchant farm, no auction", f.auction ? cls(x.settle) : ""],
       ["Total revenue", money(x.net), `${price(x.E ? x.net / x.E : null)} PLN/MWh`],
@@ -427,8 +435,9 @@ function pageMethod() {
       </dl>
       <h2>Production</h2>
       <p>Hourly irradiance on a 30° south-facing plane at each site, corrected for module temperature and capped at the farm's export limit. A performance ratio per farm makes the model reproduce each farm's metered 2023 output, a year with practically no grid curtailment.</p>
-      <p>Two reductions are then applied for the years after calibration. Grid curtailment of PV ordered by PSE (redispatch): 5.4% in 2025 and 6.1% in 2026 (to 8 November), as published by PSE. Other losses against 2023 of 3% (outages, switch-offs at negative prices, soiling), the same 97% factor as in the financial model. With both, the model gives about 10.4 GWh for 2025; revenue in the 2025 financial statements implies about 10.1 GWh (an estimate, as monthly metered data are not available). Without them it gave 11.3 GWh, about 12% too high. Both factors can be changed under Assumptions.</p>
-      <p>Results are estimates; metered data will differ day to day. Days when the offtaker switches farms off at negative prices are not modelled.</p>
+      <p>Curtailment is then taken off farm by farm and day by day, using the operator's list of switch-offs (PSE redispatch, switch-offs at negative prices, faults), with the energy lost on each day. Switch-offs at negative prices come out of the negative-price hours; the rest is spread over the day in proportion to output. The list runs to ${esc(shortDate(CFG.curtailment?.to || START))}; for later days the model uses the share lost in the same month of 2025 and 2026.</p>
+      <p>Check against metered output, January to July 2025: the model gives 7,658 MWh before curtailment, the list shows 1,570 MWh lost, leaving 6,088 MWh against 6,190 MWh metered (−1.7%). Winter months come out about 20% high (likely snow on modules); spring and summer slightly low. Curtailment cost the portfolio 19% of its potential in 2025 and 15% in 2026 to date.</p>
+      <p>Results are estimates; metered data will differ day to day.</p>
       <h2>Data sources and timing</h2>
       <ul><li>Day-ahead prices: PSE (RCE), published around 14:00 the day before delivery.</li>
         <li>Official market price: TGE TGeBase, added when available. TGE keeps about six weeks of sessions public.</li>
@@ -450,16 +459,16 @@ function pageAssumptions() {
     <div class="card"><div class="card-h"><h2>Production</h2></div><div class="form">
       <label>Performance ratio multiplier<input id="s_prm" type="number" step="0.01" min="0.5" max="1.5"></label>
       <label>Annual degradation since 2023<input id="s_deg" type="number" step="0.001" min="0" max="0.02"></label>
-      <label>Other losses factor vs 2023 (outages, switch-offs, soiling)<input id="s_avail" type="number" step="0.01" min="0" max="1"></label>
-      <label>Grid curtailment by PSE in 2026, share of output<input id="s_curt" type="number" step="0.001" min="0" max="0.5"></label>
+      <label>Availability factor vs 2023 (1.00 matches 2025 metered output)<input id="s_avail" type="number" step="0.01" min="0" max="1.2"></label>
+      <label>Curtailment after ${esc(shortDate(CFG.curtailment?.to || START))}, share of output (blank = same month in past years)<input id="s_curt" type="number" step="0.01" min="0" max="0.9" placeholder="by month"></label>
     </div></div>
     <div class="row-links"><button class="btn ghost" id="sReset">Reset to defaults</button><button class="btn ghost" id="csv">Export year to date (CSV)</button><button class="btn ghost" id="refresh">Reload latest data</button></div></div>`);
-  const set = () => { $("s_mode").value = S.mode; $("s_ratio").value = S.ratio; $("s_auction").value = S.auction; $("s_neg").value = S.neg; $("s_prm").value = S.prm; $("s_deg").value = S.deg; $("s_avail").value = S.avail; $("s_curt").value = S.curt; $("s_ratio").disabled = S.mode !== "ratio"; };
+  const set = () => { $("s_mode").value = S.mode; $("s_ratio").value = S.ratio; $("s_auction").value = S.auction; $("s_neg").value = S.neg; $("s_prm").value = S.prm; $("s_deg").value = S.deg; $("s_avail").value = S.avail; $("s_curt").value = S.curt ?? ""; $("s_ratio").disabled = S.mode !== "ratio"; };
   set();
   const upd = () => { saveSettings(); invalidate(); setNav("assumptions"); set(); };
   ["s_mode", "s_neg"].forEach((id) => $(id).addEventListener("change", () => { S[id.slice(2)] = $(id).value; upd(); }));
-  ["s_ratio", "s_auction", "s_prm", "s_deg", "s_avail", "s_curt"].forEach((id) => $(id).addEventListener("change", () => { const v = parseFloat($(id).value); if (!isNaN(v)) { S[id.slice(2)] = v; upd(); } }));
-  $("sReset").addEventListener("click", () => { store.set("wd.settings.v2", {}); S = loadSettings(); upd(); });
+  ["s_ratio", "s_auction", "s_prm", "s_deg", "s_avail", "s_curt"].forEach((id) => $(id).addEventListener("change", () => { const v = parseFloat($(id).value); if (!isNaN(v)) { S[id.slice(2)] = v; upd(); } else if (id === "s_curt") { S.curt = null; upd(); } }));
+  $("sReset").addEventListener("click", () => { store.set("wd.settings.v3", {}); S = loadSettings(); upd(); });
   $("csv").addEventListener("click", () => (YTD.done ? exportCsv() : (setStatus("The year is still loading; try again in a moment."), loadYtd())));
   $("refresh").addEventListener("click", refreshData);
 }
@@ -468,10 +477,10 @@ function pageAssumptions() {
 function exportCsv() {
   const rs = rows();
   const head = ["date", "market_price_pln_mwh", "price_source", "sale_price_pln_mwh", "auction_price_pln_mwh", "production_mwh", "auction_farms_mwh",
-    "settled_mwh", "sales_pln", "settlement_pln", "total_revenue_pln", "negative_hours", ...CFG.farms.flatMap((f) => [`${f.id}_mwh`, `${f.id}_settlement_pln`])];
+    "curtailed_mwh", "settled_mwh", "sales_pln", "settlement_pln", "total_revenue_pln", "negative_hours", ...CFG.farms.flatMap((f) => [`${f.id}_mwh`, `${f.id}_settlement_pln`])];
   const lines = [head.join(",")];
   for (const r of rs) lines.push([r.date, r.base.toFixed(2), r.src, r.salePrice.toFixed(2), r.auction.toFixed(2), r.E.toFixed(4), r.eAuc.toFixed(4),
-    r.eligible.toFixed(4), r.sale.toFixed(2), r.settle.toFixed(2), r.net.toFixed(2), r.negHours, ...r.farms.flatMap((x) => [x.E.toFixed(4), x.settle.toFixed(2)])].join(","));
+    r.curtailed.toFixed(4), r.eligible.toFixed(4), r.sale.toFixed(2), r.settle.toFixed(2), r.net.toFixed(2), r.negHours, ...r.farms.flatMap((x) => [x.E.toFixed(4), x.settle.toFixed(2)])].join(","));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
   a.download = `daily-settlement_${START}_${rs[rs.length - 1].date}.csv`; a.click();
@@ -544,7 +553,8 @@ async function startApp(cfg) {
   loadYtd();
 }
 (function boot() {
-  const cached = store.sget("wd.cfg");
+  let cached = store.sget("wd.cfg");
+  if (cached && !cached.curtailment) { store.sdel("wd.cfg"); cached = null; } // data from before the curtailment list: sign in again
   if (cached) { startApp(cached); return; }
   document.body.classList.add("is-login");
   $("loginForm").addEventListener("submit", async (e) => {

@@ -7,9 +7,8 @@ const PSE_URL = "https://api.raporty.pse.pl/api/rce-pln";
 const OM_URL = "https://archive-api.open-meteo.com/v1/archive";          // ERA5 reanalysis: same source as the PR calibration
 const OM_FALLBACK = "https://historical-forecast-api.open-meteo.com/v1/forecast"; // only for days ERA5 has not published yet
 const OM_FALLBACK_MODEL = "ecmwf_ifs025";
-const DEFAULTS = { mode: "ratio", ratio: 0.60, auction: null, neg: "run6", prm: 1.0, deg: null, avail: 0.97, curt: 0.061 };
-// Grid curtailment of PV by PSE (redispatch), share of output. 2026 is editable (S.curt).
-const CURT = { "2023": 0, "2025": 0.054 };
+// curt: share of output lost to curtailment on days after the reported list ends; null = same-month history.
+const DEFAULTS = { mode: "ratio", ratio: 0.60, auction: null, neg: "run6", prm: 1.0, deg: null, avail: 1.0, curt: null };
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -66,12 +65,12 @@ let CUR = null;              // selected date
 const charts = {};
 
 function loadSettings() {
-  const s = Object.assign({}, DEFAULTS, store.get("wd.settings.v2", {}));
+  const s = Object.assign({}, DEFAULTS, store.get("wd.settings.v3", {}));
   if (s.auction == null) s.auction = CFG.auctionPrice["2026"];
   if (s.deg == null) s.deg = CFG.pvModel.degradation;
   return s;
 }
-const saveSettings = () => store.set("wd.settings.v2", S);
+const saveSettings = () => store.set("wd.settings.v3", S);
 const overrides = () => store.get("wd.baseOverrides", {});
 let OFFICIAL = {};           // date -> official TGeBase from tgebase.json
 async function loadOfficial() {
@@ -277,7 +276,9 @@ function computeDay(date) {
   const ex = excludedHours(pr.h);
   const yrs = Number(date.slice(0, 4)) - CFG.pvModel.calibrationYear;
   const degr = Math.pow(1 - S.deg, yrs);
-  const curt = date.slice(0, 4) in CURT ? CURT[date.slice(0, 4)] : Number(S.curt);
+  const CU = CFG.curtailment || { to: "", days: {}, fallback: Array(12).fill(0) };
+  const reported = date <= CU.to;
+  const fbRate = S.curt != null && S.curt !== "" ? Number(S.curt) : CU.fallback[Number(date.slice(5, 7)) - 1] || 0;
   const tc = CFG.pvModel.tempCoeff, noct = CFG.pvModel.noct;
   const portH = Array(24).fill(0);
   let wxOk = true;
@@ -289,10 +290,29 @@ function computeDay(date) {
     if (w) for (let h = 0; h < 24; h++) {
       const g = w.g[h]; if (!g) continue;
       const tf = 1 + tc * Math.max(0, w.t[h] + noct * g - 25);
-      const kw = Math.min((g / 1000) * f.kwp * f.pr * S.prm * tf * degr, f.acKw) * S.avail * (1 - curt);
-      eh[h] = kw / 1000; // MWh in this hour
+      const kw = Math.min((g / 1000) * f.kwp * f.pr * S.prm * tf * degr, f.acKw) * S.avail;
+      eh[h] = kw / 1000; // MWh in this hour, before curtailment
+    }
+    const Epot = eh.reduce((a, b) => a + b, 0);
+    // Curtailment: reported MWh per farm and day (Prime PV list), else a monthly estimate.
+    const rep = reported ? CU.days[f.id]?.[date] : null;
+    let cut = { R: 0, N: 0, F: 0, M: 0, est: 0 };
+    if (reported) { if (rep) for (const k in rep) cut[k] = rep[k]; }
+    else cut.est = Epot * fbRate;
+    const lost = Math.min(Epot, cut.R + cut.N + cut.F + cut.M + cut.est);
+    if (lost > 0) {
+      // switch-offs at negative prices come out of negative-price hours first; the rest in proportion to output
+      let left = lost;
+      const negE = eh.reduce((a, e, h) => a + (pr.h[h] != null && pr.h[h] < 0 ? e : 0), 0);
+      const fromNeg = Math.min(Math.min(cut.N, lost), negE);
+      if (fromNeg > 0) for (let h = 0; h < 24; h++) if (pr.h[h] != null && pr.h[h] < 0) eh[h] -= eh[h] * fromNeg / negE;
+      left -= fromNeg;
+      const rest = eh.reduce((a, b) => a + b, 0);
+      if (left > 0 && rest > 0) { const k = Math.max(0, 1 - left / rest); for (let h = 0; h < 24; h++) eh[h] *= k; }
     }
     const E = eh.reduce((a, b) => a + b, 0);
+    const curtailed = Epot - E;
+    const curtSrc = reported ? (rep ? "reported" : "none") : (curtailed > 0.0005 ? "estimated" : "none");
     let pv = 0, eEx = 0;
     for (let h = 0; h < 24; h++) {
       portH[h] += eh[h];
@@ -304,7 +324,7 @@ function computeDay(date) {
     const sale = S.mode === "hourly" ? pv : E * S.ratio * base;
     const eligible = f.auction ? E - eEx : 0;
     const settle = f.auction ? (auction - base) * eligible : 0;
-    return { f, E, eh, yieldKwh: E * 1000 / f.kwp, capture, salePrice, sale, eligible, eEx, settle, net: sale + settle };
+    return { f, E, Epot, curtailed, curtSrc, cut, eh, yieldKwh: E * 1000 / f.kwp, capture, salePrice, sale, eligible, eEx, settle, net: sale + settle };
   });
 
   const sum = (k) => farms.reduce((a, r) => a + r[k], 0);
@@ -313,7 +333,7 @@ function computeDay(date) {
   const pvAll = farms.reduce((a, r) => a + (r.capture ?? 0) * r.E, 0);
   return {
     date, base, proxy: pr.mean, overridden: src !== "proxy", src, auction, ex, prices: pr.h, portH, farms, wxOk,
-    E, eAuc, eligible: sum("eligible"), eEx: farms.filter((r) => r.f.auction).reduce((a, r) => a + r.eEx, 0),
+    E, Epot: sum("Epot"), curtailed: sum("curtailed"), curtReported: reported, eAuc, eligible: sum("eligible"), eEx: farms.filter((r) => r.f.auction).reduce((a, r) => a + r.eEx, 0),
     sale, settle, net, salePrice: E ? sale / E : S.ratio * base, capture: E ? pvAll / E : null,
     negHours: pr.h.filter((p) => p != null && p < 0).length,
   };

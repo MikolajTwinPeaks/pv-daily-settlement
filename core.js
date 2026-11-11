@@ -7,7 +7,9 @@ const PSE_URL = "https://api.raporty.pse.pl/api/rce-pln";
 const OM_URL = "https://archive-api.open-meteo.com/v1/archive";          // ERA5 reanalysis: same source as the PR calibration
 const OM_FALLBACK = "https://historical-forecast-api.open-meteo.com/v1/forecast"; // only for days ERA5 has not published yet
 const OM_FALLBACK_MODEL = "ecmwf_ifs025";
-const DEFAULTS = { mode: "ratio", ratio: 0.60, auction: null, neg: "run6", prm: 1.0, deg: null, avail: 1.0 };
+const DEFAULTS = { mode: "ratio", ratio: 0.60, auction: null, neg: "run6", prm: 1.0, deg: null, avail: 0.97, curt: 0.061 };
+// Grid curtailment of PV by PSE (redispatch), share of output. 2026 is editable (S.curt).
+const CURT = { "2023": 0, "2025": 0.054 };
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -64,12 +66,12 @@ let CUR = null;              // selected date
 const charts = {};
 
 function loadSettings() {
-  const s = Object.assign({}, DEFAULTS, store.get("wd.settings", {}));
+  const s = Object.assign({}, DEFAULTS, store.get("wd.settings.v2", {}));
   if (s.auction == null) s.auction = CFG.auctionPrice["2026"];
   if (s.deg == null) s.deg = CFG.pvModel.degradation;
   return s;
 }
-const saveSettings = () => store.set("wd.settings", S);
+const saveSettings = () => store.set("wd.settings.v2", S);
 const overrides = () => store.get("wd.baseOverrides", {});
 let OFFICIAL = {};           // date -> official TGeBase from tgebase.json
 async function loadOfficial() {
@@ -210,7 +212,7 @@ async function ensureDay(d) {
 // year to date: static monthly files first, live APIs only for days not in the cache yet
 const YTD = { done: false, running: null, progress: "" };
 function loadYtd(force) {
-  try { Object.keys(localStorage).filter((k) => k.startsWith("wd.cache.")).forEach((k) => localStorage.removeItem(k)); } catch {}
+  try { Object.keys(localStorage).filter((k) => k.startsWith("wd.cache.") || k === "wd.settings").forEach((k) => localStorage.removeItem(k)); } catch {}
   if (YTD.running && !force) return YTD.running;
   const to = yesterday();
   YTD.done = false;
@@ -275,6 +277,7 @@ function computeDay(date) {
   const ex = excludedHours(pr.h);
   const yrs = Number(date.slice(0, 4)) - CFG.pvModel.calibrationYear;
   const degr = Math.pow(1 - S.deg, yrs);
+  const curt = date.slice(0, 4) in CURT ? CURT[date.slice(0, 4)] : Number(S.curt);
   const tc = CFG.pvModel.tempCoeff, noct = CFG.pvModel.noct;
   const portH = Array(24).fill(0);
   let wxOk = true;
@@ -286,7 +289,7 @@ function computeDay(date) {
     if (w) for (let h = 0; h < 24; h++) {
       const g = w.g[h]; if (!g) continue;
       const tf = 1 + tc * Math.max(0, w.t[h] + noct * g - 25);
-      const kw = Math.min((g / 1000) * f.kwp * f.pr * S.prm * tf * degr * S.avail, f.acKw);
+      const kw = Math.min((g / 1000) * f.kwp * f.pr * S.prm * tf * degr, f.acKw) * S.avail * (1 - curt);
       eh[h] = kw / 1000; // MWh in this hour
     }
     const E = eh.reduce((a, b) => a + b, 0);

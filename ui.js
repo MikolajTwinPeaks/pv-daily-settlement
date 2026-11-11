@@ -426,7 +426,9 @@ function pageMethod() {
         <div><dt>Estimated price</dt><dd>${esc(T.estimated)} Largest difference seen: 32.9 PLN/MWh (28 Oct 2026). Errors go both ways and almost cancel out over a year.</dd></div>
       </dl>
       <h2>Production</h2>
-      <p>Hourly irradiance on a 30° south-facing plane at each site, corrected for module temperature and capped at the farm's export limit. A performance ratio per farm makes the model reproduce each farm's metered 2023 output. Results are estimates; metered data will differ day to day.</p>
+      <p>Hourly irradiance on a 30° south-facing plane at each site, corrected for module temperature and capped at the farm's export limit. A performance ratio per farm makes the model reproduce each farm's metered 2023 output, a year with practically no grid curtailment.</p>
+      <p>Two reductions are then applied for the years after calibration. Grid curtailment of PV ordered by PSE (redispatch): 5.4% in 2025 and 6.1% in 2026 (to 8 November), as published by PSE. Other losses against 2023 of 3% (outages, switch-offs at negative prices, soiling), the same 97% factor as in the financial model. With both, the model gives about 10.4 GWh for 2025; revenue in the 2025 financial statements implies about 10.1 GWh (an estimate, as monthly metered data are not available). Without them it gave 11.3 GWh, about 12% too high. Both factors can be changed under Assumptions.</p>
+      <p>Results are estimates; metered data will differ day to day. Days when the offtaker switches farms off at negative prices are not modelled.</p>
       <h2>Data sources and timing</h2>
       <ul><li>Day-ahead prices: PSE (RCE), published around 14:00 the day before delivery.</li>
         <li>Official market price: TGE TGeBase, added when available. TGE keeps about six weeks of sessions public.</li>
@@ -448,15 +450,16 @@ function pageAssumptions() {
     <div class="card"><div class="card-h"><h2>Production</h2></div><div class="form">
       <label>Performance ratio multiplier<input id="s_prm" type="number" step="0.01" min="0.5" max="1.5"></label>
       <label>Annual degradation since 2023<input id="s_deg" type="number" step="0.001" min="0" max="0.02"></label>
-      <label>Availability<input id="s_avail" type="number" step="0.01" min="0" max="1"></label>
+      <label>Other losses factor vs 2023 (outages, switch-offs, soiling)<input id="s_avail" type="number" step="0.01" min="0" max="1"></label>
+      <label>Grid curtailment by PSE in 2026, share of output<input id="s_curt" type="number" step="0.001" min="0" max="0.5"></label>
     </div></div>
     <div class="row-links"><button class="btn ghost" id="sReset">Reset to defaults</button><button class="btn ghost" id="csv">Export year to date (CSV)</button><button class="btn ghost" id="refresh">Reload latest data</button></div></div>`);
-  const set = () => { $("s_mode").value = S.mode; $("s_ratio").value = S.ratio; $("s_auction").value = S.auction; $("s_neg").value = S.neg; $("s_prm").value = S.prm; $("s_deg").value = S.deg; $("s_avail").value = S.avail; $("s_ratio").disabled = S.mode !== "ratio"; };
+  const set = () => { $("s_mode").value = S.mode; $("s_ratio").value = S.ratio; $("s_auction").value = S.auction; $("s_neg").value = S.neg; $("s_prm").value = S.prm; $("s_deg").value = S.deg; $("s_avail").value = S.avail; $("s_curt").value = S.curt; $("s_ratio").disabled = S.mode !== "ratio"; };
   set();
   const upd = () => { saveSettings(); invalidate(); setNav("assumptions"); set(); };
   ["s_mode", "s_neg"].forEach((id) => $(id).addEventListener("change", () => { S[id.slice(2)] = $(id).value; upd(); }));
-  ["s_ratio", "s_auction", "s_prm", "s_deg", "s_avail"].forEach((id) => $(id).addEventListener("change", () => { const v = parseFloat($(id).value); if (!isNaN(v)) { S[id.slice(2)] = v; upd(); } }));
-  $("sReset").addEventListener("click", () => { store.set("wd.settings", {}); S = loadSettings(); upd(); });
+  ["s_ratio", "s_auction", "s_prm", "s_deg", "s_avail", "s_curt"].forEach((id) => $(id).addEventListener("change", () => { const v = parseFloat($(id).value); if (!isNaN(v)) { S[id.slice(2)] = v; upd(); } }));
+  $("sReset").addEventListener("click", () => { store.set("wd.settings.v2", {}); S = loadSettings(); upd(); });
   $("csv").addEventListener("click", () => (YTD.done ? exportCsv() : (setStatus("The year is still loading; try again in a moment."), loadYtd())));
   $("refresh").addEventListener("click", refreshData);
 }

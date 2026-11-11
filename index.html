@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Daily Settlement</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230F2A33'/%3E%3Ccircle cx='22.5' cy='9.5' r='3.6' fill='%23E8B04B'/%3E%3Cpath d='M5.5 24.5 10.8 14h15.7l-5.3 10.5z' fill='%23fff'/%3E%3Cpath d='M8.2 19.3h15.6M15.6 14l-5.3 10.5M21 14l-5.3 10.5' stroke='%230F2A33' stroke-width='1.3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0F2A33"/><circle cx="22.5" cy="9.5" r="3.6" fill="#E8B04B"/><path d="M5.5 24.5 10.8 14h15.7l-5.3 10.5z" fill="#fff"/><path d="M8.2 19.3h15.6M15.6 14l-5.3 10.5M21 14l-5.3 10.5" stroke="#0F2A33" stroke-width="1.3"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-day" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="7" y="12.5" width="4" height="4" rx=".8" fill="currentColor"/></symbol>
+  <symbol id="i-year" viewBox="0 0 24 24"><path d="M4 20V10M9 20V6M14 20v-8M19 20V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-farms" viewBox="0 0 24 24"><path d="M3 19 6.5 11h14L17 19z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4.8 15h14M10.5 11l-3.5 8M15.5 11 12 19" stroke="currentColor" stroke-width="1.4"/><circle cx="17.5" cy="5.5" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-method" viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 12h7M8.5 15.5h7M8.5 8.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="15" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- LOGIN -->
+<section id="login" class="login" style="--img:url('img/login.jpg')">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <svg class="logo lg" aria-hidden="true"><use href="#logo"/></svg>
+    <h1>Daily Settlement</h1>
+    <p>Production, prices and auction settlement for a solar portfolio. Access is restricted; your password unlocks the encrypted data on this device.</p>
+    <label for="user">Login</label>
+    <input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <button type="submit" class="btn" id="loginBtn">Sign in</button>
+    <p id="loginErr" class="login-err" role="alert" hidden>Login or password is incorrect.</p>
+  </form>
+</section>
+
+<!-- APP -->
+<div id="app" class="shell" hidden>
+  <aside class="side">
+    <a class="brand" href="#/"><svg class="logo" aria-hidden="true"><use href="#logo"/></svg><span><b>Daily Settlement</b><small id="brandSub"></small></span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="#/" data-nav="overview"><svg aria-hidden="true"><use href="#i-home"/></svg><span>Overview</span></a>
+      <a href="#/day" data-nav="day"><svg aria-hidden="true"><use href="#i-day"/></svg><span>Day</span></a>
+      <a href="#/year" data-nav="year"><svg aria-hidden="true"><use href="#i-year"/></svg><span>Year</span></a>
+      <a href="#/farms" data-nav="farms"><svg aria-hidden="true"><use href="#i-farms"/></svg><span>Farms</span></a>
+      <a href="#/method" data-nav="method"><svg aria-hidden="true"><use href="#i-method"/></svg><span>Method</span></a>
+      <a href="#/assumptions" data-nav="assumptions"><svg aria-hidden="true"><use href="#i-sliders"/></svg><span>Assumptions</span></a>
+    </nav>
+    <div class="side-foot">
+      <a href="#/assumptions" class="chip warn" id="customChip" hidden>Custom assumptions in use</a>
+      <div class="side-meta" id="sideMeta"></div>
+      <button class="side-out" id="logout"><svg aria-hidden="true"><use href="#i-out"/></svg><span>Sign out</span></button>
+    </div>
+  </aside>
+  <div class="main">
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <main id="page"></main>
+    <footer class="foot">Estimates for monitoring, not settlement documents. Data: PSE, TGE, Open-Meteo (ERA5). Photography: Adobe Stock.</footer>
+  </div>
+</div>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<script src="core.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

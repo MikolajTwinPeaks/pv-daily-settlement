@@ -1,0 +1,5 @@
+.DS_Store
+farms.private.json
+img/_orig/
+node_modules/
+PASSWORD.local.txt
